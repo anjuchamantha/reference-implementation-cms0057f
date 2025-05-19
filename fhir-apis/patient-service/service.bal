@@ -16,6 +16,7 @@
 import ballerina/http;
 import ballerina/io;
 import ballerina/log;
+import ballerina/observe as _;
 import ballerinax/health.clients.fhir;
 import ballerinax/health.fhir.r4;
 import ballerinax/health.fhirr4;
