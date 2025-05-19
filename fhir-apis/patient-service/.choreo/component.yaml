@@ -13,7 +13,7 @@ endpoints:
     - name: fhir-metrics-api-803
       displayName: FHIR Metrics API
       service:
-        basePath: /
+        basePath: /prom/
         port: 9797
       type: REST
       networkVisibilities:
