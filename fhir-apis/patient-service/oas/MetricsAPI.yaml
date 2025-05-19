@@ -6,7 +6,7 @@ info:
 servers:
   - url: http://localhost:9797/
 paths:
-  /metrics:
+  /prom/metrics:
     get:
       summary: Get application metrics
       responses:
