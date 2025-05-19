@@ -2,7 +2,6 @@ openapi: 3.0.1
 info:
   title: Metrics API
   description: API to retrieve application metrics.
-  version: 1.0.0
 servers:
   - url: http://localhost:9797/
 paths:
