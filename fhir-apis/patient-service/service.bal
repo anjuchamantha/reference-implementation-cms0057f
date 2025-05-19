@@ -16,6 +16,7 @@
 import ballerina/http;
 import ballerina/io;
 import ballerina/log;
+import ballerina/observe as _;
 import ballerinax/health.clients.fhir;
 import ballerinax/health.fhir.r4;
 import ballerinax/health.fhirr4;
@@ -91,7 +92,7 @@ service / on new fhirr4:Listener(9090, apiConfig) {
 
     // Search for resources based on a set of criteria.
     isolated resource function get fhir/r4/Patient(r4:FHIRContext fhirContext) returns r4:FHIRError|error|r4:Bundle {
-        io:print("FHIR Context print: " + fhirContext.getHTTPRequest().toJsonString());
+        io:print("FHIR Context: " + fhirContext.getHTTPRequest().toJsonString());
         log:printInfo("FHIR Context: " + fhirContext.getHTTPRequest().toJsonString());
         r4:Bundle searchResult = check search("Patient", getQueryParamsMap(fhirContext.getRequestSearchParameters()));
         return searchResult;
