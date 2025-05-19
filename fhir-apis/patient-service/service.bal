@@ -81,15 +81,19 @@ service / on new fhirr4:Listener(9090, apiConfig) {
 
     // Read the current state of single resource based on its id.
     isolated resource function get fhir/r4/Patient/[string id](r4:FHIRContext fhirContext) returns r4:FHIRError|uscore501:USCorePatientProfile|error {
-        uscore501:USCorePatientProfile response = check getById(id);
+        io:println("GET Patient/ID: ");
+
+        uscore501:USCorePatientProfile patientProfile = check getById(id);
+
         http:Client albumClient = check new ("http://patient-service-test-anju-2424562340:9797/prom");
 
         // Sends a `GET` request to the "/albums" resource.
         // The verb is not mandatory as it is default to "GET".
-        json albums = check albumClient->get("/metrics");
-        io:println("GET request:" + albums.toJsonString());
+        http:Response metricsResponse = check albumClient->get("/metrics");
+        json albums = check metricsResponse.getJsonPayload();
+        io:println("GET request: " + albums.toJsonString());
 
-        return response;
+        return patientProfile;
     }
 
     // Read the state of a specific version of a resource based on its id.
