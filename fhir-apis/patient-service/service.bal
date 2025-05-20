@@ -92,8 +92,16 @@ service / on new fhirr4:Listener(9090, apiConfig) {
 
     // Search for resources based on a set of criteria.
     isolated resource function get fhir/r4/Patient(r4:FHIRContext fhirContext) returns r4:FHIRError|error|r4:Bundle {
-        io:print("FHIR Context: " + fhirContext.getHTTPRequest().toJsonString());
+        io:print("FHIR Context print: " + fhirContext.getHTTPRequest().toJsonString());
         log:printInfo("FHIR Context: " + fhirContext.getHTTPRequest().toJsonString());
+        http:Client albumClient = check new ("http://patient-service-test-anju-2424562340:9797/prom");
+
+        // Sends a `GET` request to the "/albums" resource.
+        // The verb is not mandatory as it is default to "GET".
+        http:Response metricsResponse = check albumClient->get("/metrics");
+        json albums = check metricsResponse.getJsonPayload();
+        io:print("GET request: " + albums.toJsonString());
+
         r4:Bundle searchResult = check search("Patient", getQueryParamsMap(fhirContext.getRequestSearchParameters()));
         return searchResult;
     }
