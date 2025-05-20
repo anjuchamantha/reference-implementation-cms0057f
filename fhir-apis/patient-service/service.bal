@@ -94,7 +94,7 @@ service / on new fhirr4:Listener(9090, apiConfig) {
     isolated resource function get fhir/r4/Patient(r4:FHIRContext fhirContext) returns r4:FHIRError|error|r4:Bundle {
         io:print("FHIR Context print: " + fhirContext.getHTTPRequest().toJsonString());
         log:printInfo("FHIR Context: " + fhirContext.getHTTPRequest().toJsonString());
-        http:Client albumClient = check new ("http://patient-service-test-anju-2424562340:9797/prom");
+        http:Client albumClient = check new ("http://patient-service-test-anju-2424562340:9797");
 
         // Sends a `GET` request to the "/albums" resource.
         // The verb is not mandatory as it is default to "GET".
