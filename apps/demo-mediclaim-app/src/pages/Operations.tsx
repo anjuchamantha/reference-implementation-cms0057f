@@ -86,8 +86,7 @@ const Operations: React.FC = () => {
   const navigate = useNavigate();
   const [selectedOperation, setSelectedOperation] =
     useState<string>("patient-search");
-  const [patient, setPatient] = useState<string>("");
-  const [fhirPatient, setFhirPatient] = useState<string>("");
+  const [patient, setFhirPatient] = useState<string>("");
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [responseData, setResponseData] = useState<any>(null);
@@ -175,10 +174,9 @@ const Operations: React.FC = () => {
       if (storedAuthToken.id_token) {
         try {
           const decodedToken: any = jwtDecode(storedAuthToken.id_token);
-          if (decodedToken.patient && decodedToken.fhirUser) {
+          if (decodedToken.fhirUser) {
             console.log("Patient ID:", decodedToken.patient);
-            setPatient(decodedToken.patient);
-            setFhirPatient(decodedToken.fhirUser);
+            setFhirPatient(decodedToken.fhirUser.split("/").pop());
             navigate("/api-view");
             return;
           } else {
@@ -412,6 +410,8 @@ const Operations: React.FC = () => {
         return renderCoverageTable();
       case "ClaimResponse":
         return renderClaimResponseTable();
+      case "DiagnosticReport":
+        return renderDiagReportResponseTable();
       default:
         return (
           <div className="text-center py-6 text-muted-foreground">
@@ -581,6 +581,61 @@ const Operations: React.FC = () => {
                 <TableCell>{payment}</TableCell>
                 <TableCell>{eob?.outcome || "N/A"}</TableCell>
                 <TableCell>{eob?.disposition || "N/A"}</TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    );
+  };
+
+  // Function to render ExplanationOfBenefit table
+  const renderDiagReportResponseTable = () => {
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>ID</TableHead>
+            <TableHead>Payer</TableHead>
+            <TableHead>Provider</TableHead>
+            <TableHead>Effective Date</TableHead>
+            <TableHead>Status</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {responseData.entry.map((entry: any, index: number) => {
+            const eob = entry.resource;
+            // Validate identifier: prefer identifier[0].id, fallback to id, else "N/A"
+            let identifier = "N/A";
+            if (Array.isArray(eob?.identifier) && eob.identifier.length > 0) {
+              identifier = eob.identifier[0]?.id || "N/A";
+            } else if (eob?.id) {
+              identifier = eob.id;
+            }
+
+            // Validate payer: basedOn[0].display, fallback to "N/A"
+            const payer =
+              Array.isArray(eob?.basedOn) && eob.basedOn.length > 0
+              ? eob.basedOn[0]?.display || "N/A"
+              : "N/A";
+
+            // Validate provider: performer[0].display, fallback to "N/A"
+            const provider =
+              Array.isArray(eob?.performer) && eob.performer.length > 0
+              ? eob.performer[0]?.display || "N/A"
+              : "N/A";
+              
+            // const payer = eob?.basedOn.length>0 ? eob?.basedOn[0]?.display : "N/A";
+            // const provider = eob?.performer.length>0 ? eob?.performer[0]?.display : "N/A";
+            const date = eob?.effectivePeriod?.start || eob?.effectiveDateTime || "N/A";
+
+            return (
+              <TableRow key={`eob-${index}`}>
+                <TableCell>{identifier || "N/A"}</TableCell>
+                <TableCell>{payer || "N/A"}</TableCell>
+                <TableCell>{provider || "N/A"}</TableCell>
+                <TableCell>{date || "N/A"}</TableCell>
+                <TableCell>{eob?.status || "N/A"}</TableCell>
               </TableRow>
             );
           })}

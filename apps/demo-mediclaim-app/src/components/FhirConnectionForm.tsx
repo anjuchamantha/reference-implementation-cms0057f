@@ -44,12 +44,14 @@ interface SmartConfiguration {
   capabilities: string[];
 }
 
+const Config = window.Config;
+
 const FhirConnectionForm: React.FC = () => {
   const { toast } = useToast();
   const [formData, setFormData] = useState<FormData>({
-    baseUrl: "https://mediclaim.cms-wso2.publicvm.com",
-    consumerKey: "tB8I1tBZFYi5UxKfR_fc9kZmUqIa",
-    consumerSecret: "",
+    baseUrl: Config.baseUrl,
+    consumerKey: Config.consumerKey,
+    consumerSecret: Config.consumerSecret,
     redirectUri: `${window.location.origin}/api-view`,
     practitionerMode: false,
   });
@@ -98,7 +100,7 @@ const FhirConnectionForm: React.FC = () => {
 
     setTimeout(() => {
       // Fetch SMART configuration from well-known endpoint
-      const smartConfigUrl = `${baseUrl}/fhir/r4/.well-known/smart-configuration`;
+      const smartConfigUrl = baseUrl + Config.wellKnownEndpoint;
       console.log(`Fetching SMART configuration from: ${smartConfigUrl}`);
       fetch(smartConfigUrl)
         .then((response) => {
@@ -134,7 +136,7 @@ const FhirConnectionForm: React.FC = () => {
           )}&redirect_uri=${encodeURIComponent(
             formData.redirectUri
           )}&scope=openid%20fhirUser%20launch/patient&state=
-            ${uuid.v4()}&aud=${encodeURIComponent(baseUrl + "/fhir/r4")}`;
+            ${uuid.v4()}&aud=${encodeURIComponent(baseUrl + Config.audienceEndpoint)}`;
 
           console.log("Redirecting to authorization URL:", authorizationUrl);
           window.location.href = authorizationUrl;
