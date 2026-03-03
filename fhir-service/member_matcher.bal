@@ -57,13 +57,25 @@ public isolated class DemoFHIRMemberMatcher {
         // Get patient resource from OLD payor
         // Search Patient from given name
         uscore501:USCorePatientProfileName[] name = memberPatient.name;
+        if name.length() == 0 {
+            return r4:createFHIRError("No patient name found", r4:ERROR, r4:INVALID_REQUIRED,
+                    httpStatusCode = http:STATUS_BAD_REQUEST);
+        }
 
         string[] given = name[0].given ?: [];
+        if given.length() == 0 {
+            return r4:createFHIRError("No patient given name found", r4:ERROR, r4:INVALID_REQUIRED,
+                    httpStatusCode = http:STATUS_BAD_REQUEST);
+        }
         r4:Bundle nameMatchedPatients = check search(self.fhirConnector, PATIENT, {"given": [given[0]]});
 
         r4:BundleEntry[]? entry = nameMatchedPatients.entry;
 
         if entry is r4:BundleEntry[] {
+            if entry.length() == 0 {
+                return r4:createFHIRError("No match found", r4:ERROR, r4:PROCESSING_NOT_FOUND,
+                        httpStatusCode = http:STATUS_UNPROCESSABLE_ENTITY);
+            }
             r4:BundleEntry firstEntry = entry[0];
 
             anydata 'resource = firstEntry?.'resource;
@@ -73,11 +85,18 @@ public isolated class DemoFHIRMemberMatcher {
             if cloneWithType is international401:Patient {
                 oldPatient = self.filterPatientsByDemographics([cloneWithType], memberPatient.clone());
             }
+            if oldPatient.id !is string {
+                log:printError("Matched patient is missing id");
+                return INTERNAL_ERROR;
+            }
             string patientId = <string>oldPatient.id;
 
             // Get coverage from id
+            if coverageToMatch.id !is string {
+                log:printError("Incoming coverage is missing id");
+                return INTERNAL_ERROR;
+            }
             string coverageId = <string>coverageToMatch.id;
-            r4:Reference incomingCoverageBeneficiary = coverageToMatch.beneficiary;
             r4:DomainResource|r4:FHIRError oldCoverage = check getById(self.fhirConnector, COVERAGE, coverageId);
 
             if oldCoverage is r4:FHIRError {
@@ -90,6 +109,10 @@ public isolated class DemoFHIRMemberMatcher {
                 return INTERNAL_ERROR;
             }
             string oldBeneficiaryRef = <string>i4OldCoverage.beneficiary.reference;
+            if !oldBeneficiaryRef.startsWith("Patient/") {
+                log:printError(string `Unexpected beneficiary reference format: ${oldBeneficiaryRef}`);
+                return INTERNAL_ERROR;
+            }
 
             // string substring = oldBeneficiaryRef.substring(8);
 
@@ -103,15 +126,12 @@ public isolated class DemoFHIRMemberMatcher {
             if oldBeneficiaryRef.substring(8) == patientId {
                 //match found
 
-                // Validate consent for the matched member ID
-                // ConsentEvaluationResponse|error consentResponse = self.queryConsentEvaluate(self.createConsentParamsPayload(consent, patientId));
-
-                // if consentResponse is error {
-                //     log:printError("Failed to evaluate consent", consentResponse);
-                //     return (r4:createFHIRError("Failed to evaluate consent",
-                //             r4:ERROR, r4:PROCESSING,
-                //             httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR));
-                // }
+                if consent !is () {
+                    hrex100:HRexConsent|r4:FHIRError persistedConsent = self.persistConsent(consent, patientId);
+                    if persistedConsent is r4:FHIRError {
+                        return persistedConsent;
+                    }
+                }
 
                 return <hrex100:MemberIdentifier>patientId;
             }
@@ -189,7 +209,7 @@ public isolated class DemoFHIRMemberMatcher {
 
     }
 
-    isolated function queryConsentEvaluate(international401:Parameters parameters) returns ConsentEvaluationResponse|r4:FHIRError {
+    isolated function persistConsent(hrex100:HRexConsent consentResource, string memberIdentifier) returns hrex100:HRexConsent|r4:FHIRError {
         http:Client|error consentClient = new (CONSENT_SERVICE_BASE_URL);
 
         if consentClient is error {
@@ -199,101 +219,47 @@ public isolated class DemoFHIRMemberMatcher {
                     httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
         }
 
-        http:Response|error response = consentClient->post("/fhir/r4/Consent/$evaluate", parameters.toJson(), {
+        hrex100:HRexConsent consentToSave = consentResource.clone();
+        consentToSave.patient = {
+            reference: string `Patient/${memberIdentifier}`
+        };
+
+        http:Response|error response = consentClient->post("/fhir/r4/Consent", consentToSave.toJson(), {
             "Content-Type": "application/fhir+json",
             "Accept": "application/fhir+json"
         });
 
         if response is error {
-            log:printError("Failed to query consent evaluate endpoint", response);
-            return r4:createFHIRError("Internal server error - failed to query consent endpoint",
+            log:printError("Failed to persist consent resource", response);
+            return r4:createFHIRError("Internal server error - failed to persist consent",
                     r4:ERROR, r4:PROCESSING,
                     httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
         }
 
         int statusCode = response.statusCode;
-        log:printDebug(string `Consent evaluate response status: ${statusCode}`);
+        if statusCode != http:STATUS_OK && statusCode != http:STATUS_CREATED {
+            log:printError(string `Consent persistence failed with status: ${statusCode}`);
+            return r4:createFHIRError("Failed to persist consent resource",
+                    r4:ERROR, r4:PROCESSING,
+                    httpStatusCode = statusCode);
+        }
 
-        if statusCode == http:STATUS_OK {
-            // Success case - return the parameters response
-            json|error responsePayload = response.getJsonPayload();
-            if responsePayload is error {
-                log:printError("Failed to parse success response payload", responsePayload);
-                return r4:createFHIRError("Invalid response format",
-                        r4:ERROR, r4:PROCESSING,
-                        httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
-            }
-
-            international401:Parameters|error parametersResponse = responsePayload.cloneWithType();
-            if parametersResponse is error {
-                log:printError("Failed to convert response to Parameters", parametersResponse);
-                return r4:createFHIRError("Invalid Parameters response",
-                        r4:ERROR, r4:PROCESSING,
-                        httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
-            }
-
-            return {
-                statusCode: statusCode,
-                success: true,
-                parameters: parametersResponse
-            };
-
-        } else if statusCode == http:STATUS_UNPROCESSABLE_ENTITY {
-            // Validation failure case - return the operation outcome
-            json|error responsePayload = response.getJsonPayload();
-            if responsePayload is error {
-                log:printError("Failed to parse error response payload", responsePayload);
-                return r4:createFHIRError("Invalid error response format",
-                        r4:ERROR, r4:PROCESSING,
-                        httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
-            }
-
-            r4:OperationOutcome|international401:Parameters|error operationOutcome = responsePayload.cloneWithType();
-            if operationOutcome is error {
-                log:printError("Failed to convert response to OperationOutcome", operationOutcome);
-                return r4:createFHIRError("Invalid OperationOutcome response",
-                        r4:ERROR, r4:PROCESSING,
-                        httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
-            }
-            if operationOutcome is international401:Parameters {
-                log:printDebug(operationOutcome.toString());
-                return r4:createFHIRError("Member identity does not match",
-                        r4:ERROR, r4:PROCESSING,
-                        httpStatusCode = http:STATUS_UNPROCESSABLE_ENTITY);
-            }
-
-            return {
-                statusCode: statusCode,
-                success: false,
-                operationOutcome: <r4:OperationOutcome>operationOutcome
-            };
-
-        } else {
-            // Unexpected status code
-            log:printError(string `Unexpected status code from consent evaluate: ${statusCode}`);
-            return r4:createFHIRError(string `Unexpected response status: ${statusCode}`,
+        json|error responsePayload = response.getJsonPayload();
+        if responsePayload is error {
+            log:printError("Failed to parse persisted consent response payload", responsePayload);
+            return r4:createFHIRError("Invalid persisted consent response format",
                     r4:ERROR, r4:PROCESSING,
                     httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
         }
-    }
 
-    isolated function createConsentParamsPayload(hrex100:HRexConsent? consentResource, string memberIdentifier) returns international401:Parameters {
-        // Mocking a Parameters resource for consent evaluation
+        hrex100:HRexConsent|error persistedConsent = responsePayload.cloneWithType();
+        if persistedConsent is error {
+            log:printError("Failed to convert persisted consent response", persistedConsent);
+            return r4:createFHIRError("Invalid persisted consent response",
+                    r4:ERROR, r4:PROCESSING,
+                    httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
+        }
 
-        international401:Parameters parameters = {
-            id: "member-match-in",
-            'parameter: [
-                {
-                    name: "Consent",
-                    'resource: consentResource
-                },
-                {
-                    name: "memberIdentifier",
-                    valueString: memberIdentifier
-                }
-            ]
-        };
-        return parameters;
-
+        return persistedConsent;
     }
 }
