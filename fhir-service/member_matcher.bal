@@ -54,6 +54,7 @@ public isolated class DemoFHIRMemberMatcher {
         hrex100:HRexConsent? consent = memberMatchResources.consent;
         hrex100:HRexCoverage coverageToMatch = memberMatchResources.coverageToMatch;
         hrex100:HRexCoverage? _ = memberMatchResources.coverageToLink;
+        log:printDebug(string `Member match request received. Consent attached: ${consent is hrex100:HRexConsent}`);
 
         // Get patient resource from OLD payor
         // Search Patient from given name
@@ -68,11 +69,13 @@ public isolated class DemoFHIRMemberMatcher {
             return r4:createFHIRError("No patient given name found", r4:ERROR, r4:INVALID_REQUIRED,
                     httpStatusCode = http:STATUS_BAD_REQUEST);
         }
+        log:printDebug(string `Searching patient by given name: ${given[0]}`);
         r4:Bundle nameMatchedPatients = check search(self.fhirConnector, PATIENT, {"given": [given[0]]});
 
         r4:BundleEntry[]? entry = nameMatchedPatients.entry;
 
         if entry is r4:BundleEntry[] {
+            log:printDebug(string `Patient search returned ${entry.length()} entries`);
             if entry.length() == 0 {
                 return r4:createFHIRError("No match found", r4:ERROR, r4:PROCESSING_NOT_FOUND,
                         httpStatusCode = http:STATUS_UNPROCESSABLE_ENTITY);
@@ -91,6 +94,7 @@ public isolated class DemoFHIRMemberMatcher {
                 return INTERNAL_ERROR;
             }
             string patientId = <string>oldPatient.id;
+            log:printDebug(string `Matched candidate patient id: ${patientId}`);
 
             // Get coverage from id
             if coverageToMatch.id !is string {
@@ -98,6 +102,7 @@ public isolated class DemoFHIRMemberMatcher {
                 return INTERNAL_ERROR;
             }
             string coverageId = <string>coverageToMatch.id;
+            log:printDebug(string `Reading coverage for id: ${coverageId}`);
             r4:DomainResource|r4:FHIRError oldCoverage = check getById(self.fhirConnector, COVERAGE, coverageId);
 
             if oldCoverage is r4:FHIRError {
@@ -126,8 +131,10 @@ public isolated class DemoFHIRMemberMatcher {
             // If both beneficiaryRef and oldPatient.id are same, we can derive it as a match
             if oldBeneficiaryRef.substring(8) == patientId {
                 //match found
+                log:printDebug(string `Beneficiary reference matched patient id: ${patientId}`);
 
                 if ENABLE_MEMBER_MATCH_CONSENT_PERSISTENCE {
+                    log:printDebug("Member match consent persistence is enabled");
                     if consent is () {
                         return r4:createFHIRError("Consent is required for member match",
                                 r4:ERROR, r4:INVALID_REQUIRED,
@@ -138,6 +145,9 @@ public isolated class DemoFHIRMemberMatcher {
                     if persistedConsent is r4:FHIRError {
                         return persistedConsent;
                     }
+                    log:printDebug(string `Consent persisted successfully for patient id: ${patientId}`);
+                } else {
+                    log:printDebug("Member match consent persistence is disabled");
                 }
 
                 return <hrex100:MemberIdentifier>patientId;
@@ -217,6 +227,7 @@ public isolated class DemoFHIRMemberMatcher {
     }
 
     isolated function persistConsent(hrex100:HRexConsent consentResource, string memberIdentifier) returns hrex100:HRexConsent|r4:FHIRError {
+        log:printDebug(string `Persisting consent for patient id: ${memberIdentifier}`);
         http:Client|error consentClient = new (CONSENT_SERVICE_BASE_URL);
 
         if consentClient is error {
@@ -231,6 +242,7 @@ public isolated class DemoFHIRMemberMatcher {
             reference: string `Patient/${memberIdentifier}`
         };
 
+        log:printDebug("Calling consent create endpoint: /fhir/r4/Consent");
         http:Response|error response = consentClient->post("/fhir/r4/Consent", consentToSave.toJson(), {
             "Content-Type": "application/fhir+json",
             "Accept": "application/fhir+json"
@@ -244,6 +256,7 @@ public isolated class DemoFHIRMemberMatcher {
         }
 
         int statusCode = response.statusCode;
+        log:printDebug(string `Consent create response status: ${statusCode}`);
         if statusCode != http:STATUS_OK && statusCode != http:STATUS_CREATED {
             log:printError(string `Consent persistence failed with status: ${statusCode}`);
             return r4:createFHIRError("Failed to persist consent resource",
