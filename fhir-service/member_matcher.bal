@@ -27,6 +27,7 @@ final r4:FHIRError & readonly INTERNAL_ERROR = r4:createFHIRError("Internal serv
         r4:PROCESSING, httpStatusCode = http:STATUS_INTERNAL_SERVER_ERROR);
 
 configurable string CONSENT_SERVICE_BASE_URL = "http://localhost:9090";
+configurable boolean ENABLE_MEMBER_MATCH_CONSENT_PERSISTENCE = false;
 
 # # This class implements the reference member matcher for the Da Vinci HRex Member Matcher.
 # # The matcher is used to match a member's coverage with the existing patient records in the FHIR repository.
@@ -126,7 +127,13 @@ public isolated class DemoFHIRMemberMatcher {
             if oldBeneficiaryRef.substring(8) == patientId {
                 //match found
 
-                if consent !is () {
+                if ENABLE_MEMBER_MATCH_CONSENT_PERSISTENCE {
+                    if consent is () {
+                        return r4:createFHIRError("Consent is required for member match",
+                                r4:ERROR, r4:INVALID_REQUIRED,
+                                httpStatusCode = http:STATUS_BAD_REQUEST);
+                    }
+
                     hrex100:HRexConsent|r4:FHIRError persistedConsent = self.persistConsent(consent, patientId);
                     if persistedConsent is r4:FHIRError {
                         return persistedConsent;
