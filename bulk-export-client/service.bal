@@ -45,6 +45,8 @@ isolated service /bulk on bulkExportListener {
             @http:Query string? _since,
             @http:Query string? _type) returns json|error {
 
+        log:printDebug("Received bulk export request.", patientCount = matchedPatients.length(), outputFormat = _outputFormat ?: "", since = _since ?: "", resourceTypes = _type ?: "");
+
         return triggerBulkExport(matchedPatients, _outputFormat, _since, _type);
 
     }
@@ -59,6 +61,8 @@ isolated service /bulk on bulkExportListener {
     @deprecated
     isolated resource function get status(string exportId) returns json|error {
 
+        log:printDebug("Received export status request.", exportId = exportId);
+
         return getExportTaskFromMemory(exportId).toJson();
 
     }
@@ -70,6 +74,8 @@ isolated service /bulk on bulkExportListener {
     // @param location - The location of the file to be downloaded.
     @deprecated
     isolated resource function get download(string location) returns http:STATUS_ACCEPTED|http:STATUS_INTERNAL_SERVER_ERROR {
+
+        log:printDebug("Received download request.", location = location, targetFile = "exportedData.json");
 
         error? saveFileResult = saveFileInFS(location, "exportedData.json");
         if saveFileResult is error {
@@ -91,6 +97,7 @@ public isolated function triggerBulkExport(MatchedPatient[] matchedPatients, str
     http:Response|http:ClientError status;
 
     log:printInfo("Bulk exporting started. Sending Kick-off request.");
+    log:printDebug("Initializing export task.", exportId = taskId, patientCount = matchedPatients.length(), sync = sync, explicitConfigProvided = explicitConfig is BulkExportServerConfig);
     // Group patients by system URL
     map<MatchedPatient[]> patientsBySystem = {};
     foreach MatchedPatient patient in matchedPatients {
@@ -113,6 +120,7 @@ public isolated function triggerBulkExport(MatchedPatient[] matchedPatients, str
         existingPatients.push(patient);
         patientsBySystem[systemId] = existingPatients;
     }
+    log:printDebug("Grouped patients by source system.", exportId = taskId, systemCount = patientsBySystem.keys().length());
 
     do {
 
@@ -133,12 +141,14 @@ public isolated function triggerBulkExport(MatchedPatient[] matchedPatients, str
             // Get client within lock statement
             http:Client httpClient = check createHttpClient(serverConfig);
             MatchedPatient[] systemPatients = patientsBySystem.get(systemUrl);
+            log:printDebug("Processing grouped system patients.", exportId = taskId, systemUrl = systemUrl, patientCount = systemPatients.length());
 
             // Instance level export - Iterate over patients
             foreach MatchedPatient patient in systemPatients {
 
                 string queryString = populateQueryString(_outputFormat, _since, _type);
                 string path = string `/Patient/${patient.id}/$export${queryString}`;
+                log:printDebug("Sending kick-off request.", exportId = taskId, patientId = patient.id, path = path);
 
                 // kick-off request to the bulk export server
                 // No Prefer header requested
@@ -150,7 +160,14 @@ public isolated function triggerBulkExport(MatchedPatient[] matchedPatients, str
                 }
                 );
 
+                if status is http:Response {
+                    log:printDebug("Kick-off response received.", exportId = taskId, patientId = patient.id, statusCode = status.statusCode);
+                } else {
+                    log:printDebug("Kick-off request returned client error.", exportId = taskId, patientId = patient.id, errorMessage = status.message());
+                }
+
                 submitBackgroundJob(taskId, status, sync, context);
+                log:printDebug("Submitted background job for kick-off response.", exportId = taskId, patientId = patient.id);
             }
         }
 
@@ -184,6 +201,7 @@ isolated service /file on new http:Listener(8100) {
 
         log:printInfo("Downloading file for member: " + exportId + " and resource type: " + resourceType);
         string filePath = clientServiceConfig.targetDirectory + file:pathSeparator + exportId + file:pathSeparator + resourceType + "-exported.ndjson";
+        log:printDebug("Resolved export file path.", exportId = exportId, resourceType = resourceType, filePath = filePath);
 
         mime:Entity entity = new;
         entity.setFileAsEntityBody(filePath);
